@@ -92,10 +92,14 @@ print(json.dumps(answer))
   assert.ok(!('2' in cfg.curves.C_by_measured_site));
   assert.equal(cfg.integrator,'scaled_taylor');
   // Test the small-grid control regression as an ordinary pure controller unit.
-  const controls=Object.fromEntries(Object.entries({engine:'statevec',lx:'3',ly:'3',bc:'obc',srcop:'Z',probeop:'Z',tmax:'2',nt:'6',svseed:'0',svrow:'',svhint:''}).map(([key,value])=>[key,{value}]));
+  const controls=Object.fromEntries(Object.entries({engine:'statevec',lx:'3',ly:'3',bc:'obc',srcop:'Z',srcx:'3',srcy:'2',probeop:'Z',tmax:'2',nt:'6',svseed:'0',svrow:'',svhint:''}).map(([key,value])=>[key,{value}]));
   const controlCtx=vm.createContext({state:{src:0},$:id=>controls[id],syncResultView:()=>{}});
-  vm.runInContext(script.slice(script.indexOf('function readInputs(){'),script.indexOf('/* Cheap, pre-run cost estimate'))+'\nreadInputs();',controlCtx);
-  assert.equal(controlCtx.state.nt,6);assert.equal(controlCtx.state.svSeed,0);
+  vm.runInContext(script.slice(script.indexOf('function syncSourceControls(){'),script.indexOf('function markDirty(){'))+
+    script.slice(script.indexOf('function readInputs(){'),script.indexOf('/* Cheap, pre-run cost estimate'))+'\nthis.readInputs=readInputs;readInputs();',controlCtx);
+  assert.equal(controlCtx.state.nt,6);assert.equal(controlCtx.state.svSeed,0);assert.equal(controlCtx.state.src,5);
+  assert.equal(controls.srcx.max,'3');assert.equal(controls.srcy.max,'3');
+  controls.srcx.value='99';controls.srcy.value='0';controlCtx.readInputs();
+  assert.equal(controlCtx.state.src,2);assert.equal(controls.srcx.value,'3');assert.equal(controls.srcy.value,'1');
   // Bilingual strings and DOM hooks must be complete, even without visual QA.
   const languageCtx=vm.createContext({});
   vm.runInContext(script.slice(script.indexOf('const I18N ='),script.indexOf('function applyLang(){'))+'\nthis.dict=I18N;',languageCtx);
