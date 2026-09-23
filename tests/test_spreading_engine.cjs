@@ -1,15 +1,16 @@
 // Numerical unit tests only: no browser, DOM renderer, or network access.
 const fs=require('node:fs'), vm=require('node:vm'), assert=require('node:assert/strict');
 const path=require('node:path'), {spawnSync}=require('node:child_process');
-const html=fs.readFileSync(path.join(__dirname,'../operator_spreading_lab.html'),'utf8');
-const script=html.match(/<script>([\s\S]*?)<\/script>/)[1];
+const html=fs.readFileSync(path.join(__dirname,'../operator_spreading_2d.html'),'utf8');
+const script=fs.readFileSync(path.join(__dirname,'../operator_spreading_shared.js'),'utf8');
 new vm.Script(script); // Parse the entire app, without running its UI.
 const ctx=vm.createContext({performance,DOMException,structuredClone,setTimeout:(f)=>setTimeout(f,0),curLang:'en'});
 vm.runInContext(script.slice(script.indexOf('const OPS ='),script.indexOf('/* --------------------------------------------------------------- charting */'))+
-  '\nthis.core={simulate,simulateStateVector,buildStateVectorGenerator,buildTerms,makeLattice,randomTypicalityState,computeFrontStats,matvec};',ctx);
+  '\nthis.core={simulate,simulateStateVector,buildStateVectorGenerator,buildTerms,makeLattice,generateSiteDisorder,randomTypicalityState,computeFrontStats,matvec};',ctx);
 const c=ctx.core;
 const spec={lx:2,ly:2,bc:'obc',oneBody:[{op:'X',coeff:-1.05},{op:'Y',coeff:0.31},{op:'Z',coeff:-0.5}],
   twoBody:[{dx:1,dy:0,opA:'Z',opB:'Z',coeff:-1},{dx:0,dy:1,opA:'X',opB:'Y',coeff:0.27}],
+  siteBody:[],disorderMode:'none',disorderOp:'Z',disorderStrength:0.5,disorderSeed:1,
   src:0,srcOp:'Y',probeOp:'X',tmax:0.8,nt:5,svSeed:0};
 const close=(a,b,tol=1e-10)=>assert.ok(Math.abs(a-b)<tol,`${a} != ${b} (tol ${tol})`);
 
@@ -21,10 +22,23 @@ const close=(a,b,tol=1e-10)=>assert.ok(Math.abs(a-b)<tol,`${a} != ${b} (tol ${to
     close(a.site[0][k],4*Math.sin(1.4*a.times[k])**2);
     close(a.site[0][k],b.site[0][k]);
   }
+  const siteOne={...one,oneBody:[],siteBody:[{site:0,op:'X',coeff:0.7}],disorderMode:'uniform',disorderOp:'X',disorderStrength:0.7,disorderSeed:11};
+  const siteA=await c.simulate(siteOne),siteB=await c.simulateStateVector(siteOne);
+  for(let k=0;k<siteA.times.length;k++){
+    close(siteA.mem[k],Math.cos(1.4*siteA.times[k]));
+    close(siteA.site[0][k],siteB.site[0][k]);
+  }
   const mixed={...one,lx:2,bc:'pbc',oneBody:[],twoBody:[{dx:1,dy:0,opA:'X',opB:'Y',coeff:1}]};
   assert.equal(c.buildTerms(c.makeLattice(2,1,'pbc'),mixed).length,2,'Mixed XY directed bonds must both survive on a two-site ring');
   mixed.twoBody[0].opB='X';
   assert.equal(c.buildTerms(c.makeLattice(2,1,'pbc'),mixed).length,1,'Identical Pauli bonds are undirected');
+  const realization=c.generateSiteDisorder(4,'Z',0.7,19);
+  assert.deepEqual(Array.from(c.generateSiteDisorder(4,'Z',0.7,19),t=>t.coeff),Array.from(realization,t=>t.coeff),'same disorder seed must reproduce every site');
+  assert.notDeepEqual(Array.from(c.generateSiteDisorder(4,'Z',0.7,20),t=>t.coeff),Array.from(realization,t=>t.coeff),'different disorder seeds must change the realization');
+  assert.ok(c.generateSiteDisorder(20,'Z',0.7,19,'uniform').every(t=>Math.abs(t.coeff)<=0.7),'uniform disorder must stay inside its support');
+  assert.ok(c.generateSiteDisorder(20,'Z',0.7,19,'gaussian').every(t=>Number.isFinite(t.coeff)),'Gaussian disorder must remain finite');
+  assert.ok(c.generateSiteDisorder(20,'Z',0.7,19,'binary').every(t=>Math.abs(Math.abs(t.coeff)-0.7)<1e-15),'binary disorder must be ± the selected amplitude');
+  assert.equal(c.buildTerms(c.makeLattice(4,1,'obc'),{oneBody:[],twoBody:[],siteBody:[realization[2]]}).length,1,'site-resolved disorder must not be translated');
   const exact=await c.simulate(spec), estimate=await c.simulateStateVector(spec);
   assert.equal(estimate.svSeed,0,'seed zero must remain reproducible');
   assert.ok(Number.isNaN(estimate.site[2][1]),'unmeasured site cannot inherit representative data');
@@ -48,6 +62,7 @@ def product(ops):
 H=np.zeros((d,d),complex)
 for term in s['oneBody']:
     for j in range(n): H+=term['coeff']*product({j:term['op']})
+for term in s.get('siteBody',[]): H+=term['coeff']*product({term['site']:term['op']})
 for term in s['twoBody']:
     for y in range(s['ly']):
         for x in range(s['lx']):
@@ -89,11 +104,14 @@ print(json.dumps(answer))
   const cfg=ctx.makeConfig(estimate);
   assert.equal(cfg.one_body[0].coeff,coefficient);
   assert.equal(cfg.seed,0);assert.equal(cfg.spatial_sampling,'representative_per_shell');
+  assert.equal(cfg.schema_version,3);assert.equal(cfg.on_site_disorder.mode,'none');
   assert.ok(!('2' in cfg.curves.C_by_measured_site));
   assert.equal(cfg.integrator,'scaled_taylor');
+  const disorderCfg=ctx.makeConfig(siteA);
+  assert.deepEqual(JSON.parse(JSON.stringify(disorderCfg.on_site_disorder.realized_terms)),[{site:0,op:'X',coeff:0.7}]);
   // Test the small-grid control regression as an ordinary pure controller unit.
-  const controls=Object.fromEntries(Object.entries({engine:'statevec',lx:'3',ly:'3',bc:'obc',srcop:'Z',srcx:'3',srcy:'2',probeop:'Z',tmax:'2',nt:'6',svseed:'0',svrow:'',svhint:''}).map(([key,value])=>[key,{value}]));
-  const controlCtx=vm.createContext({state:{src:0},$:id=>controls[id],syncResultView:()=>{}});
+  const controls=Object.fromEntries(Object.entries({engine:'statevec',lx:'3',ly:'3',bc:'obc',srcop:'Z',srcx:'3',srcy:'2',probeop:'Z',tmax:'2',nt:'6',svseed:'0',svrow:'',svhint:'',disorderMode:'none',disorderOp:'Z',disorderStrength:'0.5',disorderSeed:'1'}).map(([key,value])=>[key,{value}]));
+  const controlCtx=vm.createContext({PAGE_DIMENSION:'2d',state:{src:0,twoBody:[]},$:id=>controls[id],syncResultView:()=>{},rebuildSiteDisorder:()=>{}});
   vm.runInContext(script.slice(script.indexOf('function syncSourceControls(){'),script.indexOf('function markDirty(){'))+
     script.slice(script.indexOf('function readInputs(){'),script.indexOf('/* Cheap, pre-run cost estimate'))+'\nthis.readInputs=readInputs;readInputs();',controlCtx);
   assert.equal(controlCtx.state.nt,6);assert.equal(controlCtx.state.svSeed,0);assert.equal(controlCtx.state.src,5);
@@ -102,10 +120,10 @@ print(json.dumps(answer))
   assert.equal(controlCtx.state.src,2);assert.equal(controls.srcx.value,'3');assert.equal(controls.srcy.value,'1');
   // Bilingual strings and DOM hooks must be complete, even without visual QA.
   const languageCtx=vm.createContext({});
-  vm.runInContext(script.slice(script.indexOf('const I18N ='),script.indexOf('function applyLang(){'))+'\nthis.dict=I18N;',languageCtx);
-  const markup=html.slice(0,html.indexOf('<script>'));
+  vm.runInContext(script.slice(script.indexOf('const I18N ='),script.indexOf('const PAGE_DIMENSION='))+'\nthis.dict=I18N;',languageCtx);
+  const markup=html.slice(0,html.indexOf('<script'));
   for(const match of markup.matchAll(/data-i18n="([^"]+)"/g)) for(const lang of ['en','zh']) assert.ok(match[1] in languageCtx.dict[lang],`${lang} missing ${match[1]}`);
   const ids=[...markup.matchAll(/\bid="([^"]+)"/g)].map(m=>m[1]);assert.equal(new Set(ids).size,ids.length);
   for(const m of script.matchAll(/\$\(["']([^"']+)["']\)/g)) assert.ok(ids.includes(m[1]),`missing DOM hook ${m[1]}`);
-  console.log(JSON.stringify({status:'PASS',checks:['analytic_single_spin','mixed_periodic_bonds','trace_basis_vs_pauli','scipy_dense_statevector','unmeasured_sites','seed_zero','conserved_anticommuting_probe','cancellation','invalid_input','one_shell_fit','late_window','immutable_export','time_grid_controls','bilingual_keys','DOM_hooks'],dense_max_error:error,norm_drift:estimate.normDrift}));
+  console.log(JSON.stringify({status:'PASS',checks:['analytic_single_spin','analytic_single_site_disorder','mixed_periodic_bonds','site_disorder_reproducibility','uniform_disorder_support','gaussian_disorder_finite','binary_disorder_amplitude','site_disorder_locality','trace_basis_vs_pauli','scipy_dense_statevector','unmeasured_sites','seed_zero','conserved_anticommuting_probe','cancellation','invalid_input','one_shell_fit','late_window','immutable_export','time_grid_controls','bilingual_keys','DOM_hooks'],dense_max_error:error,norm_drift:estimate.normDrift}));
 })().catch(e=>{console.error(e);process.exitCode=1;});

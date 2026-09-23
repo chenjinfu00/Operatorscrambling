@@ -6,12 +6,14 @@
 
 ## 打开网页
 
-直接用浏览器打开 `index.html` 或 `operator_spreading_lab.html`，不需要安装前端依赖或启动服务器。Google Fonts 不可用时退回系统字体。两个页面可通过顶部链接切换。仓库根目录的 `index.html` 会转到主页面，便于启用 GitHub Pages 后直接访问站点根地址。
+直接用浏览器打开 `index.html`，会直接进入 `operator_spreading_2d.html`；一维页面是 `operator_spreading_1d.html`，两个页面可通过顶部按钮直接切换。旧地址 `operator_spreading_lab.html` 也会兼容地转到 2D 页面。两页共用 `operator_spreading_shared.js` 与 `operator_spreading_shared.css`，因此数值核心和界面行为不会分叉。Google Fonts 不可用时退回系统字体。
 
-- **Operator Spreading Lab**：无限温度 OTOC 与局域自关联。
+- **1D / 2D Operator Spreading Lab**：分别面向链和矩形格点的无限温度 OTOC 与局域自关联。
 - **Operator Growth Diagnostics**（文件名仍是 `operator_growth_bound.html`）：无界整数格点上的有限阶 Lanczos 系数。页面不再报告未经证明的李雅普诺夫上界。
 
-界面支持中英文、深浅色、停止计算、已计算参数与当前编辑参数的区分。OTOC 页支持下载 JSON/CSV，增长页支持下载带完整运行快照的 JSON。此次修订已做数值、控制逻辑、语言键和页面结构检查；自动浏览器受本地文件访问策略限制，尚未完成实际浏览器视觉验收。
+界面支持中英文、深浅色、停止计算、已计算参数与当前编辑参数的区分。OTOC 页支持下载 JSON/CSV，增长页支持下载带完整运行快照的 JSON。此次修订已做数值、控制逻辑、语言键、页面结构与本地浏览器视觉验收。
+
+两种几何均支持逐格点无序场：可选择均匀 `δh_i∈[-Δ,Δ]`、高斯 `δh_i∼N(0,σ²)` 或二元 `δh_i=±Δ` 分布，以及 Pauli 方向、尺度与 32 位随机种子；“一键生成”会切换到新的可复现种子。所有 realization 都加入 `H_dis = Σ_i δh_i S_i`。相同种子与分布会逐格点复现同一组系数；界面显示实际系数和正负圆环，JSON schema v3 同时保存分布参数与完整 realization。均匀单体项和无序项在哈密顿量中相加。
 
 ## OTOC 页的两种方法
 
